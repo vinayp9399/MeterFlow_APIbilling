@@ -1,13 +1,5 @@
 # MeterFlow — Usage-Based API Billing & Metering Platform
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Node.js-18+-339933?style=for-the-badge&logo=node.js&logoColor=white" />
-  <img src="https://img.shields.io/badge/React-18-61DAFB?style=for-the-badge&logo=react&logoColor=black" />
-  <img src="https://img.shields.io/badge/MongoDB-7-47A248?style=for-the-badge&logo=mongodb&logoColor=white" />
-  <img src="https://img.shields.io/badge/Redis-Cloud-DC382D?style=for-the-badge&logo=redis&logoColor=white" />
-  <img src="https://img.shields.io/badge/Razorpay-Integrated-02042B?style=for-the-badge&logo=razorpay&logoColor=white" />
-</p>
-
 ---
 
 ## Introduction
@@ -89,6 +81,7 @@ MeterFlow addresses the core infrastructure challenge behind this model:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+
 ---
 
 ## Roles
@@ -108,6 +101,10 @@ Register / Login
   ▼                           ▼
 role = "provider"       role = "admin"
 ```
+<img width="1920" height="816" alt="Screenshot (42)" src="https://github.com/user-attachments/assets/b39ce225-768d-4607-90ba-8bf292bd9a0a" />
+
+<img width="1904" height="820" alt="Screenshot (44)" src="https://github.com/user-attachments/assets/ee74a0d3-f12b-4ca4-b331-0e26aba097f3" />
+
 
 ### Admin
 - Views platform-wide stats: total users, total APIs, total requests, total revenue
@@ -179,6 +176,8 @@ Consumer App / curl / Postman
    X-RateLimit-Remaining: 47
    X-MeterFlow-API: Pokemon API
 ```
+<img width="1920" height="822" alt="Screenshot (46)" src="https://github.com/user-attachments/assets/c92cbd2c-2c05-4558-9a28-aff45dd62012" />
+
 
 ---
 
@@ -258,6 +257,8 @@ Consumer makes 51st request
   Consumer retries request
   Gateway allows through ✓
 ```
+<img width="1920" height="822" alt="Screenshot (45)" src="https://github.com/user-attachments/assets/fe53a5bd-d9da-4675-902a-16df28be842c" />
+
 
 ---
 
