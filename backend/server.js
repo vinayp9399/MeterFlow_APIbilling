@@ -70,12 +70,12 @@ app.use((err, req, res, next) => {
 
 // Socket.io events
 io.on('connection', (socket) => {
-  console.log(`🔌 Client connected: ${socket.id}`);
+  console.log(`Client connected: ${socket.id}`);
   socket.on('join-dashboard', (userId) => {
     socket.join(`user-${userId}`);
   });
   socket.on('disconnect', () => {
-    console.log(`🔌 Client disconnected: ${socket.id}`);
+    console.log(`Client disconnected: ${socket.id}`);
   });
 });
 
