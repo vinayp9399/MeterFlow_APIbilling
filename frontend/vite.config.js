@@ -7,11 +7,11 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:5000',
+        target: 'https://meterflow-apibilling.onrender.com',
         changeOrigin: true,
       },
       '/gateway': {
-        target: 'http://localhost:5000',
+        target: 'https://meterflow-apibilling.onrender.com',
         changeOrigin: true,
       },
     },
