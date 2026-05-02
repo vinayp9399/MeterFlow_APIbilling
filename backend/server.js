@@ -49,6 +49,9 @@ app.use('/api/consumer', consumerRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/gateway', gatewayRoutes);
 
+const dns = require('dns');
+dns.setServers(['8.8.8.8', '8.8.4.4']);
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString(), service: 'MeterFlow API' });

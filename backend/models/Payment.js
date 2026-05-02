@@ -12,50 +12,19 @@ const paymentSchema = new mongoose.Schema(
       ref: 'Billing',
       required: true,
     },
-    // Razorpay identifiers
     razorpayOrderId: {
       type: String,
       required: true,
-      unique: true,
+      unique: true, // <--- This already creates the index!
     },
-    razorpayPaymentId: {
-      type: String,
-      default: null,
-    },
-    razorpaySignature: {
-      type: String,
-      default: null,
-    },
-    amount: {
-      type: Number, // in paise (INR * 100)
-      required: true,
-    },
-    amountInRupees: {
-      type: Number,
-      required: true,
-    },
-    currency: {
-      type: String,
-      default: 'INR',
-    },
-    status: {
-      type: String,
-      enum: ['created', 'paid', 'failed', 'refunded'],
-      default: 'created',
-    },
-    month: {
-      type: String, // "2024-01"
-      required: true,
-    },
-    paidAt: {
-      type: Date,
-      default: null,
-    },
+    // ... rest of your fields
   },
   { timestamps: true }
 );
 
 paymentSchema.index({ userId: 1, createdAt: -1 });
-paymentSchema.index({ razorpayOrderId: 1 });
+
+// DELETE OR COMMENT OUT THE LINE BELOW:
+// paymentSchema.index({ razorpayOrderId: 1 }); 
 
 module.exports = mongoose.model('Payment', paymentSchema);

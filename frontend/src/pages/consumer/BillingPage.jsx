@@ -105,8 +105,8 @@ export default function BillingPage() {
 
   const freeUsagePct = current ? Math.min(100, (current.totalRequests / current.freeRequests) * 100) : 0
   
-  // FIX: logic updated to check if amount exists at all
-  const hasBalance = current?.amount > 0
+  // UPDATED: Check both request limit and amount to ensure free tier users don't see the pay button
+  const hasBalance = current?.totalRequests >= current?.freeRequests && current?.amount > 0
   const isPaid = current?.status === 'paid'
 
   return (
@@ -192,14 +192,13 @@ export default function BillingPage() {
                   ))}
                 </div>
 
-                <div className="flex justify-between items-center pt-4 mt-2 border-t border-white/10">
+                {/* <div className="flex justify-between items-center pt-4 mt-2 border-t border-white/10">
                   <span className="font-semibold text-white">Amount Due</span>
                   <span className="text-3xl font-display font-bold text-brand-400">
                     ₹{current?.amount|| '0.00'}
                   </span>
-                </div>
+                </div> */}
 
-                {/* UPDATED CONDITIONAL BLOCK */}
                 <div className="mt-5">
                   {isPaid ? (
                     <div className="flex items-center gap-2 text-emerald-400 text-sm bg-emerald-500/10 rounded-xl px-4 py-3 border border-emerald-500/20">
@@ -278,7 +277,7 @@ export default function BillingPage() {
         </div>
       </div>
 
-      {paymentHistory?.length > 0 && (
+      {/* {paymentHistory?.length > 0 && (
         <div className="card p-5">
           <h2 className="font-display font-semibold text-white mb-4 flex items-center gap-2">
             <Receipt size={16} /> Payment History
@@ -316,7 +315,7 @@ export default function BillingPage() {
             </table>
           </div>
         </div>
-      )}
+      )} */}
 
       <div className="card p-5">
         <h2 className="font-display font-semibold text-white mb-4 flex items-center gap-2">
