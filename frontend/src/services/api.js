@@ -1,7 +1,13 @@
 import axios from 'axios'
 
+// In development: VITE_API_URL is empty, Vite proxy forwards /api/* to localhost:5000
+// In production:  VITE_API_URL = https://meterflow-apibilling.onrender.com
+const BASE_URL = import.meta.env.VITE_API_URL
+  ? `https://meterflow-apibilling.onrender.com/api`
+  : '/api'
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: BASE_URL,
   headers: { 'Content-Type': 'application/json' },
 })
 
@@ -21,7 +27,6 @@ api.interceptors.response.use(
     // 402 Payment Required — trigger payment modal
     if (error.response?.status === 402) {
       const data = error.response.data?.data
-      // Dispatch a custom event — PaymentModalProvider listens for it
       window.dispatchEvent(new CustomEvent('meterflow:payment-required', {
         detail: {
           amount: data?.amount,
@@ -39,7 +44,7 @@ api.interceptors.response.use(
       original._retry = true
       try {
         const refreshToken = localStorage.getItem('refreshToken')
-        const { data } = await axios.post('/api/auth/refresh', { refreshToken })
+        const { data } = await axios.post(`${BASE_URL}/auth/refresh`, { refreshToken })
         localStorage.setItem('accessToken', data.data.accessToken)
         localStorage.setItem('refreshToken', data.data.refreshToken)
         original.headers.Authorization = `Bearer ${data.data.accessToken}`
