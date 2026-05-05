@@ -2,43 +2,76 @@ const Redis = require('ioredis');
 
 let redisClient = null;
 let redisAvailable = false;
+let connectionAttempted = false;
 
-const getRedisClient = () => {
-  if (!redisClient) {
-    redisClient = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
-      maxRetriesPerRequest: null, // required by BullMQ
+const getRedisClient = () => redisClient;
+const isRedisAvailable = () => redisAvailable;
+
+const initRedis = () => {
+  if (connectionAttempted) return;
+  connectionAttempted = true;
+
+  const url = process.env.REDIS_URL;
+
+  if (!url) {
+    console.warn('⚠️  REDIS_URL not set — rate limiting and job queue disabled');
+    return;
+  }
+
+  try {
+    redisClient = new Redis(url, {
+      maxRetriesPerRequest: null,
       enableReadyCheck: false,
       lazyConnect: true,
+      connectTimeout: 5000,        // fail fast after 5s
+      commandTimeout: 3000,        // individual commands timeout after 3s
       retryStrategy(times) {
-        if (times > 2) {
-          // Stop retrying — Redis is not available
-          return null;
-        }
-        return Math.min(times * 200, 1000);
+        if (times > 3) return null; // stop retrying after 3 attempts
+        return Math.min(times * 500, 2000);
       },
     });
 
-    redisClient.on('connect', () => {
+    redisClient.on('ready', () => {
       redisAvailable = true;
-      console.log('Redis connected');
+      console.log('✅ Redis connected');
     });
 
     redisClient.on('error', (err) => {
-      if (redisAvailable || err.code !== 'ECONNREFUSED') {
-        console.error('Redis unavailable:', err.message);
+      redisAvailable = false;
+      // Only log once to avoid flooding logs
+      if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') {
+        console.warn('⚠️  Redis unavailable — rate limiting disabled');
       }
+    });
+
+    redisClient.on('close', () => {
       redisAvailable = false;
     });
 
-    // Attempt connection (non-blocking)
-    redisClient.connect().catch(() => {
-      console.warn('Redis not available — rate limiting and job queue disabled');
+    redisClient.connect().catch((err) => {
+      redisAvailable = false;
+      console.warn('⚠️  Redis connection failed:', err.message);
     });
+
+  } catch (err) {
+    redisAvailable = false;
+    console.warn('⚠️  Redis init failed:', err.message);
   }
-  return redisClient;
 };
 
-const isRedisAvailable = () => redisAvailable;
+// Safe wrapper — never throws, returns null if Redis unavailable
+const safeRedisCall = async (fn) => {
+  if (!redisAvailable || !redisClient) return null;
+  try {
+    return await fn(redisClient);
+  } catch (err) {
+    redisAvailable = false;
+    console.warn('⚠️  Redis command failed:', err.message);
+    return null;
+  }
+};
 
 module.exports = getRedisClient;
 module.exports.isRedisAvailable = isRedisAvailable;
+module.exports.initRedis = initRedis;
+module.exports.safeRedisCall = safeRedisCall;
