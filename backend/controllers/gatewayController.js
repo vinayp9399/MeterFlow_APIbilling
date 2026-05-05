@@ -31,7 +31,6 @@ const checkAndUpsertBilling = async (userId) => {
     return { allowed: true, totalRequests };
   }
 
-  // Check existing billing record
   const billableRequests = totalRequests - FREE_REQUESTS_PER_MONTH;
   const amount = parseFloat(((billableRequests / 100) * PRICE_PER_100_REQUESTS).toFixed(2));
 
@@ -39,12 +38,7 @@ const checkAndUpsertBilling = async (userId) => {
   const billing = await Billing.findOneAndUpdate(
     { userId, month },
     {
-      $set: {
-        totalRequests,
-        freeRequests: FREE_REQUESTS_PER_MONTH,
-        billableRequests,
-        amount,
-      },
+      $set: { totalRequests, freeRequests: FREE_REQUESTS_PER_MONTH, billableRequests, amount },
       $setOnInsert: { status: 'pending' },
     },
     { upsert: true, new: true }
@@ -55,7 +49,6 @@ const checkAndUpsertBilling = async (userId) => {
     return { allowed: true, totalRequests };
   }
 
-  // Block — return billing info for payment modal
   return {
     allowed: false,
     totalRequests,
@@ -98,7 +91,7 @@ const proxyRequest = async (req, res) => {
         return res.status(402).json({
           success: false,
           code: 'PAYMENT_REQUIRED',
-          message: `Free tier exhausted. You have used ${billingCheck.totalRequests} of ${FREE_REQUESTS_PER_MONTH} free requests this month. Please pay your bill to continue.`,
+          message: `Free tier exhausted. You have used ${billingCheck.totalRequests} of ${FREE_REQUESTS_PER_MONTH} free requests this month.`,
           data: {
             totalRequests: billingCheck.totalRequests,
             freeRequests: billingCheck.freeRequests,
@@ -132,9 +125,18 @@ const proxyRequest = async (req, res) => {
     }
 
     // Build target URL
-    const pathAfterGateway = req.params[0] || '';
-    const queryString = req.url.includes('?') ? '?' + req.url.split('?')[1] : '';
-    const targetUrl = `${api.baseUrl}/${pathAfterGateway}${queryString}`;
+    // req.path gives the path after /gateway (e.g. /pokemon/pikachu)
+    // req.query gives query string params
+    const pathAfterGateway = req.path === '/' ? '' : req.path;
+    const queryString = Object.keys(req.query).length
+      ? '?' + new URLSearchParams(req.query).toString()
+      : '';
+
+    // Clean double slashes
+    const baseUrl = api.baseUrl.replace(/\/$/, '');
+    const targetUrl = `${baseUrl}${pathAfterGateway}${queryString}`;
+
+    console.log(`🔀 Gateway: ${req.method} ${targetUrl}`);
 
     // Forward request to real API
     const response = await fetch(targetUrl, {
@@ -146,7 +148,7 @@ const proxyRequest = async (req, res) => {
     const latency = Date.now() - startTime;
     const responseData = await response.json().catch(() => ({}));
 
-    // Log usage asynchronously
+    // Log usage asynchronously — never block the response
     UsageLog.create({
       apiKeyId: apiKey._id,
       apiId: api._id,
@@ -167,6 +169,7 @@ const proxyRequest = async (req, res) => {
     res.setHeader('X-Response-Time', `${latency}ms`);
     res.setHeader('X-MeterFlow-API', api.name);
     return res.status(response.status).json(responseData);
+
   } catch (error) {
     const latency = Date.now() - startTime;
     console.error('Gateway error:', error.message);
