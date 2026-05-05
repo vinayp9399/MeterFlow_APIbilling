@@ -73,12 +73,14 @@ export default function GatewayPage() {
 
     try {
       const cleanPath = path.startsWith('/') ? path.slice(1) : path
-      const res = await fetch(`/gateway/${cleanPath}`, {
+      const GATEWAY_BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/gateway` : '/gateway'
+      const res = await fetch(`${GATEWAY_BASE}/${cleanPath}`, {
         headers: { 'X-API-Key': selectedKey.key },
       })
       const elapsed = Date.now() - start
       let body
-      try { body = await res.json() } catch { body = { error: 'Non-JSON response' } }
+      const text = await res.text()
+      try { body = JSON.parse(text) } catch { body = { error: 'Non-JSON response from gateway', raw: text.slice(0, 500) } }
 
       // Handle 402 Payment Required
       if (res.status === 402) {

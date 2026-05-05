@@ -79,7 +79,7 @@ const proxyRequest = async (req, res) => {
       return res.status(404).json({ success: false, message: 'API not found or inactive' });
     }
 
-    // 2. Billing check for consumers only (MongoDB — never Redis)
+    // 2. Billing check for consumers
     const user = await User.findById(apiKey.userId);
     if (user && user.role === 'consumer') {
       const billingCheck = await checkAndUpsertBilling(apiKey.userId);
@@ -100,7 +100,7 @@ const proxyRequest = async (req, res) => {
       }
     }
 
-    // 3. Rate limiting — uses safeRedisCall which NEVER throws
+    // 3. Rate limiting
     const limit = api.rateLimit?.requestsPerMinute || 60;
     const rateLimitResult = await safeRedisCall(async (redis) => {
       const key = `rate_limit:${apiKeyValue}`;
@@ -116,36 +116,58 @@ const proxyRequest = async (req, res) => {
         return res.status(429).json({ success: false, message: 'Rate limit exceeded. Try again in a minute.' });
       }
     }
-    // If rateLimitResult is null — Redis was unavailable, allow request through silently
 
     // 4. Build target URL
-    const pathAfterGateway = req.path === '/' ? '' : req.path;
+    const rawPath = req.params.path || '';
+    const cleanPath = rawPath ? (rawPath.startsWith('/') ? rawPath : `/${rawPath}`) : '';
     const queryString = Object.keys(req.query).length
       ? '?' + new URLSearchParams(req.query).toString()
       : '';
     const baseUrl = api.baseUrl.replace(/\/$/, '');
-    const targetUrl = `${baseUrl}${pathAfterGateway}${queryString}`;
+    const targetUrl = `${baseUrl}${cleanPath}${queryString}`;
 
     console.log(`🔀 ${req.method} ${targetUrl}`);
 
     // 5. Forward to upstream API
-    const response = await fetch(targetUrl, {
+    const upstreamResponse = await fetch(targetUrl, {
       method: req.method,
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
       body: ['GET', 'HEAD'].includes(req.method) ? undefined : JSON.stringify(req.body),
     });
 
     const latency = Date.now() - startTime;
-    const responseData = await response.json().catch(() => ({}));
 
-    // 6. Log usage async — never blocks response
+    // Read response as text first — then try to parse as JSON
+    const responseText = await upstreamResponse.text();
+    let responseData;
+    let isJson = false;
+
+    try {
+      responseData = JSON.parse(responseText);
+      isJson = true;
+    } catch {
+      // Upstream returned non-JSON (HTML error page, plain text, etc.)
+      console.error(`⚠️  Upstream non-JSON response from ${targetUrl}:`, responseText.slice(0, 200));
+      responseData = {
+        success: false,
+        message: 'Upstream API returned a non-JSON response',
+        upstream_status: upstreamResponse.status,
+        upstream_url: targetUrl,
+        preview: responseText.slice(0, 300),
+      };
+    }
+
+    // Log usage async
     UsageLog.create({
       apiKeyId: apiKey._id,
       apiId: api._id,
       userId: apiKey.userId,
       endpoint: targetUrl,
       method: req.method,
-      statusCode: response.status,
+      statusCode: upstreamResponse.status,
       latency,
       timestamp: new Date(),
     }).catch(err => console.error('Usage log error:', err.message));
@@ -157,7 +179,11 @@ const proxyRequest = async (req, res) => {
 
     res.setHeader('X-Response-Time', `${latency}ms`);
     res.setHeader('X-MeterFlow-API', api.name);
-    return res.status(response.status).json(responseData);
+    res.setHeader('Content-Type', 'application/json');
+
+    // If upstream was non-JSON, return 502 with explanation
+    const statusCode = isJson ? upstreamResponse.status : 502;
+    return res.status(statusCode).json(responseData);
 
   } catch (error) {
     const latency = Date.now() - startTime;
