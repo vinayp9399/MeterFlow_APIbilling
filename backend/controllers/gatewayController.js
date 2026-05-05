@@ -68,7 +68,6 @@ const proxyRequest = async (req, res) => {
   }
 
   try {
-    // 1. Validate API key
     const apiKey = await ApiKey.findOne({ key: apiKeyValue, status: 'active' }).populate('apiId');
     if (!apiKey) {
       return res.status(401).json({ success: false, message: 'Invalid or revoked API key' });
@@ -79,7 +78,6 @@ const proxyRequest = async (req, res) => {
       return res.status(404).json({ success: false, message: 'API not found or inactive' });
     }
 
-    // 2. Billing check for consumers
     const user = await User.findById(apiKey.userId);
     if (user && user.role === 'consumer') {
       const billingCheck = await checkAndUpsertBilling(apiKey.userId);
@@ -87,20 +85,12 @@ const proxyRequest = async (req, res) => {
         return res.status(402).json({
           success: false,
           code: 'PAYMENT_REQUIRED',
-          message: `Free tier exhausted. ${billingCheck.totalRequests} of ${FREE_REQUESTS_PER_MONTH} free requests used this month.`,
-          data: {
-            totalRequests: billingCheck.totalRequests,
-            freeRequests: billingCheck.freeRequests,
-            billableRequests: billingCheck.billableRequests,
-            amount: billingCheck.amount,
-            month: billingCheck.month,
-            billingId: billingCheck.billingId,
-          },
+          message: `Free tier exhausted. ${billingCheck.totalRequests} of ${FREE_REQUESTS_PER_MONTH} free requests used.`,
+          data: billingCheck,
         });
       }
     }
 
-    // 3. Rate limiting
     const limit = api.rateLimit?.requestsPerMinute || 60;
     const rateLimitResult = await safeRedisCall(async (redis) => {
       const key = `rate_limit:${apiKeyValue}`;
@@ -113,22 +103,25 @@ const proxyRequest = async (req, res) => {
       res.setHeader('X-RateLimit-Limit', limit);
       res.setHeader('X-RateLimit-Remaining', Math.max(0, limit - rateLimitResult));
       if (rateLimitResult > limit) {
-        return res.status(429).json({ success: false, message: 'Rate limit exceeded. Try again in a minute.' });
+        return res.status(429).json({ success: false, message: 'Rate limit exceeded.' });
       }
     }
 
-    // 4. Build target URL
-    const rawPath = req.params.path || '';
-    const cleanPath = rawPath ? (rawPath.startsWith('/') ? rawPath : `/${rawPath}`) : '';
+    // --- RECONSTRUCTION FIX START ---
+    const pathPart = req.params.path || '';
+    const extraPart = req.params[0] || ''; 
+    const fullPath = (pathPart + extraPart).replace(/^\//, ''); 
+    
     const queryString = Object.keys(req.query).length
       ? '?' + new URLSearchParams(req.query).toString()
       : '';
+
     const baseUrl = api.baseUrl.replace(/\/$/, '');
-    const targetUrl = `${baseUrl}${cleanPath}${queryString}`;
+    const targetUrl = `${baseUrl}/${fullPath}${queryString}`;
+    // --- RECONSTRUCTION FIX END ---
 
     console.log(`🔀 ${req.method} ${targetUrl}`);
 
-    // 5. Forward to upstream API
     const upstreamResponse = await fetch(targetUrl, {
       method: req.method,
       headers: {
@@ -139,8 +132,6 @@ const proxyRequest = async (req, res) => {
     });
 
     const latency = Date.now() - startTime;
-
-    // Read response as text first — then try to parse as JSON
     const responseText = await upstreamResponse.text();
     let responseData;
     let isJson = false;
@@ -149,18 +140,14 @@ const proxyRequest = async (req, res) => {
       responseData = JSON.parse(responseText);
       isJson = true;
     } catch {
-      // Upstream returned non-JSON (HTML error page, plain text, etc.)
-      console.error(`⚠️  Upstream non-JSON response from ${targetUrl}:`, responseText.slice(0, 200));
       responseData = {
         success: false,
         message: 'Upstream API returned a non-JSON response',
         upstream_status: upstreamResponse.status,
-        upstream_url: targetUrl,
         preview: responseText.slice(0, 300),
       };
     }
 
-    // Log usage async
     UsageLog.create({
       apiKeyId: apiKey._id,
       apiId: api._id,
@@ -181,17 +168,13 @@ const proxyRequest = async (req, res) => {
     res.setHeader('X-MeterFlow-API', api.name);
     res.setHeader('Content-Type', 'application/json');
 
-    // If upstream was non-JSON, return 502 with explanation
-    const statusCode = isJson ? upstreamResponse.status : 502;
-    return res.status(statusCode).json(responseData);
+    return res.status(isJson ? upstreamResponse.status : 502).json(responseData);
 
   } catch (error) {
-    const latency = Date.now() - startTime;
     console.error('Gateway error:', error.message);
     return res.status(502).json({
       success: false,
       message: 'Gateway error: ' + error.message,
-      latency,
     });
   }
 };
