@@ -30,7 +30,9 @@ const checkAndUpsertBilling = async (userId) => {
   }
 
   const billableRequests = totalRequests - FREE_REQUESTS_PER_MONTH;
-  const amount = parseFloat(((billableRequests / 100) * PRICE_PER_100_REQUESTS).toFixed(2));
+  const amount = parseFloat(
+    ((billableRequests / 100) * PRICE_PER_100_REQUESTS).toFixed(2)
+  );
 
   const billing = await Billing.findOneAndUpdate(
     { userId, month },
@@ -85,8 +87,15 @@ const proxyRequest = async (req, res) => {
         return res.status(402).json({
           success: false,
           code: 'PAYMENT_REQUIRED',
-          message: `Free tier exhausted. ${billingCheck.totalRequests} of ${FREE_REQUESTS_PER_MONTH} free requests used.`,
-          data: billingCheck,
+          message: `Free tier exhausted. ${billingCheck.totalRequests} of ${FREE_REQUESTS_PER_MONTH} free requests used this month.`,
+          data: {
+            totalRequests: billingCheck.totalRequests,
+            freeRequests: billingCheck.freeRequests,
+            billableRequests: billingCheck.billableRequests,
+            amount: billingCheck.amount,
+            month: billingCheck.month,
+            billingId: billingCheck.billingId,
+          },
         });
       }
     }
@@ -107,20 +116,26 @@ const proxyRequest = async (req, res) => {
       }
     }
 
-    // --- RECONSTRUCTION FIX START ---
-    const pathPart = req.params.path || '';
-    const extraPart = req.params[0] || ''; 
-    const fullPath = (pathPart + extraPart).replace(/^\//, ''); 
-    
+    // Extract path after /gateway using originalUrl — works on ALL hosts
+    const originalUrl = req.originalUrl || '';
+    const gatewayPrefix = '/gateway';
+    let pathAfterGateway = originalUrl.startsWith(gatewayPrefix)
+      ? originalUrl.slice(gatewayPrefix.length)
+      : '';
+
+    // Split off query string — already handled by req.query
+    if (pathAfterGateway.includes('?')) {
+      pathAfterGateway = pathAfterGateway.split('?')[0];
+    }
+
     const queryString = Object.keys(req.query).length
       ? '?' + new URLSearchParams(req.query).toString()
       : '';
 
     const baseUrl = api.baseUrl.replace(/\/$/, '');
-    const targetUrl = `${baseUrl}/${fullPath}${queryString}`;
-    // --- RECONSTRUCTION FIX END ---
+    const targetUrl = `${baseUrl}${pathAfterGateway}${queryString}`;
 
-    console.log(`🔀 ${req.method} ${targetUrl}`);
+    console.log(`🔀 PROXY ${req.method} → ${targetUrl}`);
 
     const upstreamResponse = await fetch(targetUrl, {
       method: req.method,
@@ -133,17 +148,19 @@ const proxyRequest = async (req, res) => {
 
     const latency = Date.now() - startTime;
     const responseText = await upstreamResponse.text();
+
     let responseData;
     let isJson = false;
-
     try {
       responseData = JSON.parse(responseText);
       isJson = true;
     } catch {
+      console.error(`⚠️  Non-JSON from upstream (${upstreamResponse.status}):`, responseText.slice(0, 300));
       responseData = {
         success: false,
         message: 'Upstream API returned a non-JSON response',
         upstream_status: upstreamResponse.status,
+        upstream_url: targetUrl,
         preview: responseText.slice(0, 300),
       };
     }
@@ -167,7 +184,6 @@ const proxyRequest = async (req, res) => {
     res.setHeader('X-Response-Time', `${latency}ms`);
     res.setHeader('X-MeterFlow-API', api.name);
     res.setHeader('Content-Type', 'application/json');
-
     return res.status(isJson ? upstreamResponse.status : 502).json(responseData);
 
   } catch (error) {
